@@ -111,3 +111,53 @@ Okay, let's analyze this USB capture log.
 *   You've confirmed the USB security key is actively used and essential for the official software.
 *   **Your next step is to capture the serial data on the virtual COM port** created by the БПЭК while the official software is running, to see the *actual* communication protocol.
 *   Be prepared that bypassing or replicating the security key interaction will be very difficult and might be the main obstacle.
+
+
+Okay, let's analyze this initial USB capture.
+
+**Analysis of the Capture Data:**
+
+1.  **Multiple Devices:** The capture shows interactions with several USB devices: `1.2.0`, `1.3.0`, `1.7.0`, and `1.8.0` (with endpoint `1.8.3`).
+    *   Devices `1.2.0` and `1.3.0` are enumerated right at the beginning (packets 1-12). One of these is almost certainly your **USB security key**. The software likely checks for its presence before fully initializing or allowing connection to the БПЭК.
+    *   Device `1.7.0` is enumerated around 12.8 seconds (packets 13-34). This looks like the **БПЭК-03/ЦК** itself.
+    *   Device `1.8.0` / `1.8.3` is enumerated around 21.3 seconds (packets 35-46). This is less clear - it could be another interface on the БПЭК, or perhaps interaction with the security key *after* the БПЭК is detected.
+
+2.  **USB CDC ACM (Virtual COM Port):**
+    *   Packets 27-34 clearly show the host interacting with device `1.7.0` using `USBCOM` protocol requests: `GET LINE CODING`, `SET CONTROL LINE STATE`, `SET LINE CODING`.
+    *   This is standard procedure for setting up a **USB Communications Device Class (CDC) Abstract Control Model (ACM)** device. In simple terms, the БПЭК is telling the PC "I am a serial port (COM port)".
+    *   The `SET LINE CODING` request (packet 31) is where the "Газсеть" software tells the БПЭК what serial parameters to use (baud rate, data bits, parity, stop bits - likely 19200 8N1 based on the manual's Appendix Г).
+    *   `SET CONTROL LINE STATE` (packet 29) is often used to signal DTR (Data Terminal Ready) and RTS (Request To Send), effectively "opening" the virtual serial port.
+
+3.  **Idle Traffic (Packets ~47 onwards):**
+    *   Most of the subsequent traffic involves device `1.8.0` and endpoint `1.8.3`.
+    *   You see a repeating pattern of `URB_CONTROL out`, `URB_INTERRUPT in`, and `URB_CONTROL in` requests/responses.
+    *   `URB_INTERRUPT in` is often used for low-latency status updates or by HID (Human Interface Devices). This traffic might be:
+        *   The software periodically polling the **security key** (`1.8.0`?) to ensure it's still present.
+        *   The software polling the **БПЭК** (`1.8.0`?) for basic status via control transfers (less common for bulk data).
+    *   **Crucially Missing:** There are **no `URB_BULK out` or `URB_BULK in` packets** associated with device `1.7.0` (the virtual COM port) after the initial setup. Bulk transfers are how actual serial data is typically sent and received over USB CDC ACM.
+
+**Conclusion and Next Steps:**
+
+This capture successfully shows:
+*   The enumeration of multiple devices (likely БПЭК and security key).
+*   The БПЭК (`1.7.0`) identifying itself as a virtual COM port.
+*   The software configuring the serial parameters for that COM port.
+*   Some form of idle polling or keep-alive happening, likely involving the security key or a basic status check on device `1.8.0`.
+
+**However, this capture DOES NOT contain the actual data communication protocol used to read archives or configuration from the БПЭК.** Because you left the software idle, it wasn't sending commands to request data over the virtual COM port (`1.7.0`), and therefore the БПЭК wasn't sending data back.
+
+**YES, you absolutely need to perform operations in the software while capturing.**
+
+**Recommended Actions While Capturing:**
+
+1.  **Connect:** Start capture, connect to the БПЭК in the "Газсеть" software (establish the connection to COM3).
+2.  **Read Current Values:** Perform an action like "Read current measurements" or "Read instantaneous values". Capture this.
+3.  **Read Configuration:** Read some basic configuration parameters (e.g., device serial number, time, SIM card settings). Capture this.
+4.  **Read Archive Data:** This is key. Perform an action to read a small portion of an archive (e.g., "Read last 10 hourly records", "Read daily archive for yesterday"). Capture this.
+5.  **Disconnect:** Disconnect from the device in the software. Capture this.
+
+**Focus Your Analysis:**
+
+*   Once you have captures with actual operations, **filter the Wireshark display** to focus *only* on traffic involving the USB device identified as the virtual COM port (which appears to be `1.7.0` in this initial capture, but double-check its address in subsequent captures).
+*   Look specifically for **`URB_BULK out`** packets (host sending commands to the device) and **`URB_BULK in`** packets (device sending responses/data back to the host) associated with that device (`1.7.0`).
+*   Analyze the **data payload** within these bulk transfers. This is where you will find the proprietary commands and responses you need to reverse engineer.
