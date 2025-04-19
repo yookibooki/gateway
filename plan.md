@@ -71,9 +71,6 @@
 
 ## 6. Investment & Costs  
 - **Effort:** 5 FTE × 12 weeks = 60 person‑weeks  
-- **Rough Cost:**  
-  - At \$8 k per FTE-week → **\$480 k** total  
-  - (Adjust based on local rates & overhead)
 
 ---
 
